@@ -1118,6 +1118,7 @@ const EN = {
   // --- öğretici ---
   "Yürümek için ekrana dokun ya da parmağını sürükle": "Tap the screen or drag your finger to walk",
   "Yürümek için WASD / ok tuşları ya da bir yere tıkla": "Use WASD / arrow keys or click somewhere to walk",
+  "Telefonunu yan çevirirsen dükkanı daha geniş, yazıları daha büyük görürsün.": "Turn your phone sideways to see more of the shop and bigger text.",
   "Fırının tepsisine yürü: ekmekleri kendiliğinden alırsın": "Walk to the bakery's tray: you pick up the bread automatically",
   "Ekmekleri malzeme rafına bırak. Raf boşalırsa tost yapılamaz!": "Drop the bread on the ingredient shelf. No toasties if the shelf runs empty!",
   "İlk müşterin geliyor!": "Your first customer is coming!",
@@ -3651,7 +3652,7 @@ class Dukkan extends Phaser.Scene {
     const cam = this.cameras.main, x0 = x, y0 = y;
     // HUD'daki jeton simgesine (ekranda 46,44) kavisle uçar
     this.tweens.addCounter({ from: 0, to: 1, duration: 520, ease: 'Cubic.In', onUpdate: (tw) => {
-      const t = tw.getValue(), v = cam.worldView, tx = v.x + 46 / cam.zoom, ty = v.y + 44 / cam.zoom, u = 1 - t;
+      const t = tw.getValue(), v = cam.worldView, uz = this.arayuz ? this.arayuz.uz : 1, tx = v.x + 46 * uz / cam.zoom, ty = v.y + 44 * uz / cam.zoom, u = 1 - t;
       const mx = (x0 + tx) / 2, my = Math.min(y0, ty) - 40;
       j.setPosition(u * u * x0 + 2 * u * t * mx + t * t * tx, u * u * y0 + 2 * u * t * my + t * t * ty).setScale((24 - 8 * t) / 64 / RES);
     }, onComplete: () => { j.destroy(); if (this.arayuz) this.arayuz.paraZipla = 1; } });
@@ -4053,10 +4054,13 @@ class Arayuz extends Phaser.Scene {
     this.gunG = this.add.graphics();
     // ipucu bandı ve bildirim
     this.ipucuG = this.add.graphics();
-    this.ipucuTxt = txt(this, 0, 110, '', 18, '#FFFDF8', { align: 'center' }).setOrigin(0.5);
+    this.ipucuTxt = txt(this, 0, 0, '', 18, '#FFFDF8', { align: 'center' }).setOrigin(0.5);
+    this.ipucuC = this.add.container(0, 110, [this.ipucuG, this.ipucuTxt]);   // dikey telefonda büyütülür
     this.bildirimG = this.add.graphics();
     this.bildirimTxt = txt(this, 0, 0, '', 16, '#3B2418', { wordWrap: { width: 360 } }).setOrigin(0, 0);
     this.bildirimBas = txt(this, 0, 0, '', 17, '#B5372E').setOrigin(0, 0);
+    // balon bir kabın içinde çizilir: kap sağ alt köşeye konur, dikey telefonda büyütülür (masaüstünde ölçek 1)
+    this.bildirimC = this.add.container(0, 0, [this.bildirimG, this.bildirimBas, this.bildirimTxt]);
     this.bildirimT = 0;
     this.okG = this.add.graphics();
     // ses düğmesi
@@ -4104,16 +4108,16 @@ class Arayuz extends Phaser.Scene {
       Ses.baslat();
       if (this.sesBasildi) { this.sesBasildi = false; return; }
       if (this.ayarAcik || this.kartAcik) return;
-      if (this.listeAcik) { this.listeSurukle = p.y; return; }
+      if (this.listeAcik) { this.listeSurukle = p.y / this.uz; return; }
       if (this.durdu) { this.durToggle(); return; }
       if (this.raporAcik) return;
-      this.basili = { x: p.x, y: p.y, id: p.id, surukle: false };
+      this.basili = { x: p.x / this.uz, y: p.y / this.uz, id: p.id, surukle: false };
     });
     this.input.on('pointermove', (p) => {
-      if (this.listeAcik && this.listeSurukle != null && p.isDown) { this.listeKaydir(this.listeSurukle - p.y); this.listeSurukle = p.y; return; }
+      if (this.listeAcik && this.listeSurukle != null && p.isDown) { this.listeKaydir(this.listeSurukle - p.y / this.uz); this.listeSurukle = p.y / this.uz; return; }
       const b = this.basili;
       if (!b || b.id !== p.id || !p.isDown) return;
-      const dx = p.x - b.x, dy = p.y - b.y, m = Math.hypot(dx, dy);
+      const dx = p.x / this.uz - b.x, dy = p.y / this.uz - b.y, m = Math.hypot(dx, dy);
       if (m > 12 && !this.haritaAcik) b.surukle = true;
       if (b.surukle) {
         const lim = 56, k = Math.min(m, lim);
@@ -4169,12 +4173,17 @@ class Arayuz extends Phaser.Scene {
     this.rapor = this.add.container(0, 0).setVisible(false).setDepth(100);
     this.scale.on('resize', this.yerlesim, this);
     this.yerlesim();
+    // dikey tutulan telefonda bir kez, oyunu bölmeden öneri: yan çevirince dükkan daha geniş ve yazılar daha büyük görünür
+    if (this.dikey) this.time.delayedCall(6000, () => { if (this.dikey) this.bildir(dil('Telefonunu yan çevirirsen dükkanı daha geniş, yazıları daha büyük görürsün.'), 5000); });
     document.getElementById('yukleniyor')?.remove();
   }
   // ekran boyutu değişince sağa ve alta yaslı öğeleri yeniden yerleştir
   yerlesim() {
-    const w = this.scale.width, h = this.scale.height;
+    this.uz = this.arayuzOlcek();
+    this.cameras.main.setOrigin(0, 0).setZoom(this.uz);
+    const w = this.scale.width / this.uz, h = this.scale.height / this.uz;
     this.W = w; this.H = h;
+    this.dikey = this.d.mobil && h > w;
     const g = this.hudG; g.clear();
     const pill = (x, y, pw, ph) => g.fillStyle(0xFFF8EA, 0.96).fillRoundedRect(x, y, pw, ph, ph / 2).lineStyle(3, INK).strokeRoundedRect(x, y, pw, ph, ph / 2);
     pill(16, 14, 220, 62); pill(248, 14, 300, 62); pill(w - 16 - 330, 14, 330, 62);
@@ -4182,13 +4191,30 @@ class Arayuz extends Phaser.Scene {
     this.zoomEksi.setPosition(w - 40, h - 104);
     this.hizBtn.setPosition(-500, -500);
     this.zoomArti.setPosition(w - 40, h - 166);
+    // telefonda ekran alçak: +/− sağdaki personel simgelerinin üstüne binmesin, en alta yan yana dizilir
+    if (this.d.mobil) { this.zoomEksi.setPosition(w - 100, h - 40); this.zoomArti.setPosition(w - 40, h - 40); }
     this.haritaBtn.setPosition(w - 76, 128);
     this.durBtn.setPosition(w - 76, 128);
     this.ayarBtn.setPosition(w - 76 - this.durBtn.width / 2 - 10 - 20, 128).setDisplaySize(this.durBtn.height, this.durBtn.height);
     if (this.haritaAcik) { this.haritaToggle(); this.haritaToggle(); }
-    this.ipucuTxt.setX(w / 2);
+    this.ipucuC.setPosition(w / 2, this.dikey ? 124 : 110).setScale(this.dikey ? 1.35 : 1);
     this.bildirimTxt.setWordWrapWidth(Math.min(360, w - 200));
     this.rapor.setPosition(w / 2, h / 2);
+  }
+  // telefonda arayüz (yazılar, uyarılar, düğmeler) ekranda okunur boyda çizilsin diye arayüz kamerası yakınlaşır.
+  // Oyun 1280×720'ye göre ölçeklendiği için telefonda her şey küçülür; burada yazı en az ~%74 CSS boyunda tutulur.
+  // Masaüstünde ve tablette 1 döner: web oynanışı hiç değişmez.
+  arayuzOlcek() {
+    if (!this.d.mobil) return 1;
+    const gw = this.scale.width, gh = this.scale.height, cw = this.game.canvas.getBoundingClientRect().width || gw;
+    const css = cw / gw;   // bir oyun pikselinin ekrandaki CSS boyu
+    return clamp(0.74 / css, 1, Math.min(gh / 540, gw / 1000));   // arayüz en az 1000×540 alana sığmalı
+  }
+  // ortadaki pencerelerin ölçeği: telefonda ekrana sığmazsa küçülür, dikey telefonda ekranı dolduracak kadar büyür
+  panelOlcek(pw, ph) {
+    if (!this.d.mobil) return 1;
+    const s = Math.min((this.W - 16) / pw, (this.H - 16) / ph);
+    return Math.min(s, this.dikey ? 1.7 : 1);
   }
   menuCiz() {
     // sol alttaki menü kutusu kaldırıldı (menü dükkandaki tabelada zaten yazıyor)
@@ -4212,14 +4238,19 @@ class Arayuz extends Phaser.Scene {
     this.kartAcik = true; this.basili = null; this.d.joy.aktif = false;
     this.scene.pause('Dukkan');
     const alt = !!this.kartAlt;
-    const w = this.W, h = this.H, c = this.add.container(w / 2, alt ? h - 140 : h / 2).setDepth(160);
+    const w = this.W, h = this.H;
+    const govde = txt(this, 0, -8, metin, 19, '#3B2418', { align: 'center', wordWrap: { width: 500 } }).setOrigin(0.5);
+    // telefonda uzun metin kartın dışına taşmasın: kart metne göre uzar, başlık üstte, düğme altta kalır
+    const kh = this.d.mobil ? Math.max(240, govde.height + 168) : 240, ust = -kh / 2;
+    if (this.d.mobil) govde.setOrigin(0.5, 0).setY(ust + 72);
+    const ks = this.panelOlcek(560, kh), c = this.add.container(w / 2, alt ? h - 20 - kh / 2 * ks : h / 2).setDepth(160);
     const g = this.add.graphics();
     g.fillStyle(INK, alt ? 0.12 : 0.35).fillRect(-w, -h * 2, w * 2, h * 3);
-    g.fillStyle(0xFFF8EA).fillRoundedRect(-280, -120, 560, 240, 24).lineStyle(5, INK).strokeRoundedRect(-280, -120, 560, 240, 24);
+    g.fillStyle(0xFFF8EA).fillRoundedRect(-280, ust, 560, kh, 24).lineStyle(5, INK).strokeRoundedRect(-280, ust, 560, kh, 24);
     c.add(g);
-    c.add(txt(this, 0, -80, baslik, 30, '#B5372E').setOrigin(0.5));
-    c.add(txt(this, 0, -8, metin, 19, '#3B2418', { align: 'center', wordWrap: { width: 500 } }).setOrigin(0.5));
-    const btn = txt(this, 0, 80, dil('Tamam'), 22, '#FFFDF8', { backgroundColor: '#2F7F7A', padding: { x: 30, y: 8 } }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+    c.add(txt(this, 0, ust + 40, baslik, 30, '#B5372E').setOrigin(0.5));
+    c.add(govde);
+    const btn = txt(this, 0, kh / 2 - 40, dil('Tamam'), 22, '#FFFDF8', { backgroundColor: '#2F7F7A', padding: { x: 30, y: 8 } }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     btn.on('pointerdown', (p, x, y, e) => {
       e.stopPropagation(); this.sesBasildi = true;
       c.destroy(); this.kartAcik = false; this.scene.resume('Dukkan');
@@ -4227,8 +4258,8 @@ class Arayuz extends Phaser.Scene {
       this.kuyrukCalis();
     });
     c.add(btn);
-    c.setScale(0.9).setAlpha(0);
-    this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 220, ease: 'Back.Out' });
+    c.setScale(0.9 * ks).setAlpha(0);
+    this.tweens.add({ targets: c, scale: ks, alpha: 1, duration: 220, ease: 'Back.Out' });
   }
   durToggle() {
     if (this.kartAcik || this.listeAcik) return;
@@ -4453,8 +4484,9 @@ class Arayuz extends Phaser.Scene {
         y += satH;
       });
     }
-    c.setScale(0.92).setAlpha(0);
-    this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 200, ease: 'Back.Out' });
+    const ks = this.panelOlcek(pw, ph);
+    c.setScale(0.92 * ks).setAlpha(0);
+    this.tweens.add({ targets: c, scale: ks, alpha: 1, duration: 200, ease: 'Back.Out' });
   }
   personelVurgu(id, sn) { this.persVurgu = { id, t: this.time.now + sn * 1000 }; }
   // ad sorma kutusu (klavye için gerçek bir metin kutusu; oyun tuşları bu sırada çalışmaz)
@@ -4512,8 +4544,9 @@ class Arayuz extends Phaser.Scene {
         onComplete: () => { c.destroy(); this.kartAcik = false; this.scene.resume('Dukkan'); this.musteriYeniT = this.time.now + 6000; Ses.acildi(); this.kuyrukCalis(); } });
     });
     c.add(btn);
-    c.setScale(0.9).setAlpha(0);
-    this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 220, ease: 'Back.Out' });
+    const ks = this.panelOlcek(540, 300);
+    c.setScale(0.9 * ks).setAlpha(0);
+    this.tweens.add({ targets: c, scale: ks, alpha: 1, duration: 220, ease: 'Back.Out' });
   }
   // "Müşteriler" kutusu: tanışılan müşteriler ve kişilikleri, henüz gelmeyenler soru işaretiyle
   musteriListeAc() {
@@ -4521,8 +4554,8 @@ class Arayuz extends Phaser.Scene {
     this.kartAcik = true; this.basili = null; this.d.joy.aktif = false;
     this.scene.pause('Dukkan');
     const S = this.d.S, w = this.W, h = this.H, turler = Object.keys(MUSTERI_BILGI);
-    const satirH = 92, ph = Math.min(h - 40, 110 + turler.length * satirH), pw = Math.min(620, w - 40);
-    const c = this.add.container(w / 2, h / 2).setDepth(160), g = this.add.graphics();
+    const satirH = 92, ph0 = 110 + turler.length * satirH, ph = this.d.mobil ? ph0 : Math.min(h - 40, ph0), pw = Math.min(620, w - 40);
+    const c = this.add.container(w / 2, h / 2).setDepth(160).setScale(this.panelOlcek(pw, ph)), g = this.add.graphics();
     g.fillStyle(INK, 0.35).fillRect(-w, -h, w * 2, h * 2);
     g.fillStyle(0xFFF8EA).fillRoundedRect(-pw / 2, -ph / 2, pw, ph, 24).lineStyle(5, INK).strokeRoundedRect(-pw / 2, -ph / 2, pw, ph, 24);
     c.add(g);
@@ -4641,8 +4674,9 @@ class Arayuz extends Phaser.Scene {
     const kb = txt(this, btnYazi ? -190 : 0, 150, dil('Kapat'), 20, '#3B2418', { backgroundColor: '#EADBC2', padding: { x: 18, y: 8 } }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     kb.on('pointerdown', (pp, x, y, e) => { e.stopPropagation(); this.sesBasildi = true; kapat(); });
     c.add(kb);
-    c.setScale(0.9).setAlpha(0);
-    this.tweens.add({ targets: c, scale: 1, alpha: 1, duration: 220, ease: 'Back.Out' });
+    const ks = this.panelOlcek(580, 380);
+    c.setScale(0.9 * ks).setAlpha(0);
+    this.tweens.add({ targets: c, scale: ks, alpha: 1, duration: 220, ease: 'Back.Out' });
   }
   gorevListeKapat() {
     if (!this.listeAcik) return;
@@ -4656,7 +4690,7 @@ class Arayuz extends Phaser.Scene {
     this.ustaDurdurdu = !this.durdu;
     if (this.ustaDurdurdu) this.scene.pause('Dukkan');
     let secim = this.d.S.usta || 'erkek';
-    const c = this.ustaPanel = this.add.container(this.W / 2, this.H / 2).setDepth(260);
+    const c = this.ustaPanel = this.add.container(this.W / 2, this.H / 2).setDepth(260).setScale(this.panelOlcek(560, 460));
     const kalkan = this.add.zone(0, 0, 6000, 6000).setInteractive();
     kalkan.on('pointerdown', (p, x, y, e) => e.stopPropagation());
     const g = this.add.graphics();
@@ -4707,7 +4741,7 @@ class Arayuz extends Phaser.Scene {
   }
   ayarCiz() {
     if (this.ayarPanel) this.ayarPanel.destroy();
-    const c = this.ayarPanel = this.add.container(this.W / 2, this.H / 2).setDepth(200);
+    const c = this.ayarPanel = this.add.container(this.W / 2, this.H / 2).setDepth(200).setScale(this.panelOlcek(600, 500));
     const g = this.add.graphics();
     g.fillStyle(INK, 0.4).fillRect(-3000, -3000, 6000, 6000);
     g.fillStyle(0xFFF8EA).fillRoundedRect(-300, -250, 600, 500, 26).lineStyle(5, INK).strokeRoundedRect(-300, -250, 600, 500, 26);
@@ -4872,8 +4906,9 @@ class Arayuz extends Phaser.Scene {
     const btn = txt(this, 0, 170, dil('Oynamaya devam et'), 22, '#FFFDF8', { backgroundColor: '#2F7F7A', padding: { x: 26, y: 8 } }).setOrigin(0.5).setInteractive({ useHandCursor: true });
     btn.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); this.raporKapat(); });
     c.add(btn);
-    c.setVisible(true).setAlpha(0).setScale(0.9);
-    this.tweens.add({ targets: c, alpha: 1, scale: 1, duration: 260, ease: 'Back.Out' });
+    const ks = this.panelOlcek(640, 500);
+    c.setVisible(true).setAlpha(0).setScale(0.9 * ks);
+    this.tweens.add({ targets: c, alpha: 1, scale: ks, duration: 260, ease: 'Back.Out' });
     konfeti(this, this.W / 2, this.H * 0.4, 90, 380, 200);
     Ses.gorev();
   }
@@ -4883,6 +4918,7 @@ class Arayuz extends Phaser.Scene {
     if (!onemli && this.bildirimOnemli && this.bildirimT > 0) { this.bildirimSonra = [s, ms, baslik]; return; }
     this.bildirimOnemli = onemli; this.bildirimSonra = null;
     this.bildirimTxt.setText(s); this.bildirimBas.setText(baslik); this.bildirimT = Math.max(ms / 1000, 2.5 + s.length / 30); this.bildirimTop = 0;
+    if (this.d.mobil) this.bildirimT *= 1.3;   // telefonda okumak daha uzun sürer: balon biraz daha uzun kalır
   }
   update(_, dtms) {
     const d = this.d, dt = dtms / 1000, S = d.S, w = this.W, h = this.H;
@@ -4924,9 +4960,10 @@ class Arayuz extends Phaser.Scene {
     const kl = d.kilavuzBilgi || {};
     this.ipucuG.clear();
     if (kl.metin && !this.raporAcik) {
-      this.ipucuTxt.setText(kl.metin).setVisible(true);
+      if (this.d.mobil) sigdir(this.ipucuTxt, kl.metin, (w - 40) / this.ipucuC.scaleX - 40, 18, 0, 13).setVisible(true);   // dar ekranda bant taşmasın
+      else this.ipucuTxt.setText(kl.metin).setVisible(true);
       const tw = this.ipucuTxt.width + 40;
-      this.ipucuG.fillStyle(TEAL, 0.96).fillRoundedRect(w / 2 - tw / 2, 86, tw, 48, 24).lineStyle(3, INK).strokeRoundedRect(w / 2 - tw / 2, 86, tw, 48, 24);
+      this.ipucuG.fillStyle(TEAL, 0.96).fillRoundedRect(-tw / 2, -24, tw, 48, 24).lineStyle(3, INK).strokeRoundedRect(-tw / 2, -24, tw, 48, 24);
     } else this.ipucuTxt.setVisible(false);
     // bildirim
     this.bildirimG.clear();
@@ -4936,7 +4973,9 @@ class Arayuz extends Phaser.Scene {
       this.bildirimTop = Math.min(1, (this.bildirimTop || 0) + dt * 6);
       const bas = this.bildirimBas.text ? this.bildirimBas.height + 2 : 0;
       const bw2 = Math.max(this.bildirimTxt.width, this.bildirimBas.text ? this.bildirimBas.width : 0) + 32, bh2 = this.bildirimTxt.height + bas + 24;
-      const sag = w - 150, alt = h - 34 - (this.yukKartE ? 118 : 0) + (1 - this.bildirimTop) * 30, bx = sag - bw2, by = alt - bh2;
+      const bk = this.dikey ? 1.5 : 1, ykH = this.yukKartE && this.yk ? (104 + 14) * this.yk.c.scaleY : 0;
+      this.bildirimC.setScale(bk).setPosition(w - 150 * bk, h - (34 + (1 - this.bildirimTop) * -30) * bk - ykH);
+      const sag = 0, alt = 0, bx = sag - bw2, by = alt - bh2;
       const a = Math.min(1, this.bildirimT * 2) * this.bildirimTop;
       this.bildirimBas.setPosition(bx + 16, by + 12).setVisible(!!bas).setAlpha(a);
       this.bildirimTxt.setPosition(bx + 16, by + 12 + bas).setVisible(true).setAlpha(a);
@@ -4952,7 +4991,7 @@ class Arayuz extends Phaser.Scene {
       const cam = d.cameras.main, v = cam.worldView, z = cam.zoom;
       const [hx, hy] = kl.hedef;
       if (hx < v.x || hx > v.right || hy < v.y || hy > v.bottom) {
-        const tx = (hx - v.x) * z, ty = (hy - v.y) * z;
+        const tx = (hx - v.x) * z / this.uz, ty = (hy - v.y) * z / this.uz;   // dünya → ekran → arayüz
         const sx = clamp(tx, 40, w - 40), sy = clamp(ty, 140, h - 60);
         const ang = Math.atan2(ty - sy, tx - sx);
         const p = (a, r) => [sx + Math.cos(ang + a) * r, sy + Math.sin(ang + a) * r];
@@ -5002,8 +5041,9 @@ class Arayuz extends Phaser.Scene {
     const sil = txt(this, 280, 252 + ek / 2, dil('Kaydı sıfırla'), 12, '#7A5E4C').setOrigin(1, 0.5).setInteractive({ useHandCursor: true });
     sil.on('pointerdown', (p, x, y, e) => { e.stopPropagation(); if (sil.text === dil('Emin misin? Tekrar bas')) this.d.sifirla(); else sil.setText(dil('Emin misin? Tekrar bas')); });
     c.add(sil);
-    c.setVisible(true).setAlpha(0).setScale(0.9);
-    this.tweens.add({ targets: c, alpha: 1, scale: 1, duration: 220, ease: 'Back.Out' });
+    const ks = this.panelOlcek(600, 560 + ek);
+    c.setVisible(true).setAlpha(0).setScale(0.9 * ks);
+    this.tweens.add({ targets: c, alpha: 1, scale: ks, duration: 220, ease: 'Back.Out' });
     this.d.kaydet();
   }
   raporKapat() {
